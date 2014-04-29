@@ -1,0 +1,75 @@
+<?php
+
+/**
+ * @file
+ * The main module file for the Islanora workflow rest interface.
+ */
+
+/**
+ * Islandora Mobile REST Query
+ *
+ * @param string $query
+ *   The solr query string.
+ *
+ * @return array
+ *   The solr query result.
+ */
+function islandora_mobile_request($query) {
+  module_load_include('inc', 'islandora_mobile', 'includes/cwrc_workflow');
+  $query_response = CWRCWorkflowAPI::findMobileQuery($query, NULL, array(), 0, 50, TRUE);
+
+  return $query_response;
+}
+
+/**
+* Implements of hook_services_resources().
+*/
+function islandora_mobile_services_resources() {
+  $mobile = array(
+    'mobile' => array(
+      'operations' => array(
+        'retrieve' => array(
+          'help' => 'Islandora Mobile Endpoint',
+          'callback' => 'islandora_mobile_request',
+          'access callback' => 'user_access',
+          'access arguments' => array('access content'),
+          'access arguments append' => FALSE,
+          'args' => array(
+            array(
+              'name' => 'query',
+              'type' => 'string',
+              'description' => 'Function to perform',
+              'source' => array('path' => '0'),
+              'optional' => TRUE,
+              'default' => '0',
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+  return $mobile;
+}
+
+/**
+ * Callback to retrieve workflow pids with given attributes.
+ */
+function islandora_mobile_rest_find_workflows() {
+  try {
+    module_load_include('inc', 'islandora_workflow_rest', 'includes/utilities');
+    module_load_include('inc', 'islandora_workflow_rest', 'includes/cwrc_workflow');
+    module_load_include('inc', 'islandora_workflow_rest', 'includes/basic_enum');
+    module_load_include('inc', 'islandora_workflow_rest', 'includes/workflow_item');
+
+    $params = islandora_workflow_rest_get_request_parameters();
+    $collection_pid = (isset($params['PID']) ? $params['collection_pid'] : NULL);
+    $required = (isset($params['required']) ? json_decode($params['required'], TRUE) : array());
+    $custom_query = (isset($params['query']) ? $params['query'] : NULL);
+
+    $workflow_pids = CWRCWorkflowAPI::findWorkflowPids($custom_query, $collection_pid, $required, 0, 5, TRUE);
+    return drupal_json_output($workflow_pids);
+  }
+  catch (Exception $e) {
+    return drupal_json_output($e);
+  }
+}
