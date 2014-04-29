@@ -79,45 +79,47 @@ XML;
    * @return array
    *   An array of workflow items.
    */
-  public static function findWorkflowPids($custom_query = NULL, $collection_pid = NULL, $required = array(), $offset = 0, $limit = 5, $simple_override = FALSE) {
+  public static function findMobileQuery($custom_query = "", $collection_pid = NULL, $required = array(), $offset = 0, $limit = 20, $simple_override = FALSE) {
     // Find all objects with a workflow datastream/attributes
     // in an optional collection.
-    $query = ISLANDORA_WORKFLOW_REST_SOLR_DEFAULT_FIELD . ":*";
-    $simple = TRUE;
-    if (isset($custom_query)) {
-      $query = $custom_query;
-      $simple = FALSE;
-    }
-    if (isset($collection_pid)) {
-      $query .= ' AND RELS_EXT_isMemberOfCollection_uri_mt:' . '"' . $collection_pid . '"';
-      $simple = FALSE;
-    }
-    if (isset($required)) {
-      foreach ($required as $key => $value) {
-        $query .= "AND $key:" . '"' . $value . '"';
-      }
-    }
     $url = parse_url(variable_get('islandora_solr_url', 'localhost:8080/solr'));
     $solr = new Apache_Solr_Service($url['host'], $url['port'], $url['path'] . '/');
     $solr->setCreateDocuments(FALSE);
-    try {
-      $results = $solr->search($query, $offset, $limit);
-      $data = json_decode($results->getRawResponse(), TRUE);
-      if ($simple == TRUE || $simple_override == TRUE) {
-        // We only want the PID's for these objects.
-        foreach ($data['response']['docs'] as $key => $value) {
-          $data[$key] = $data['response']['docs'][$key]['PID'];
-        }
-        unset($data['response']);
-        unset($data['responseHeader']);
-      }
-      $json = $data;
-    }
-    catch (Exception $e) {
-      watchdog_exception('Workflow item query: ', $e, 'Got an exception while searching for workflows.', array(), WATCHDOG_ERROR);
-    }
-    return $json;
+    $data = array();
+    $results = $solr->search($custom_query, $offset, $limit);
+    $data = json_decode($results->getRawResponse(), TRUE);
+    return CWRCWorkflowAPI::buildMobileResponse($data);
   }
+
+    public static function buildMobileResponse($query_results) {
+      module_load_include('inc', 'islandora_basic_collection', 'includes/utilities');
+      $return = array();
+      // TODO: use 'islandora_basic_collection_get_collection_content_models()'
+      // in the basic collection solution pack for cmodel's.
+      foreach ($query_results['response']['docs'] as $key => $value) {
+        try {
+          $item = array();
+        $cmodels = $value['RELS_EXT_hasModel_uri_mt'][0];
+        $pos = strpos($cmodels,"collectionCModel");
+        $object = islandora_object_load($value['PID']);
+        $parent_pids = islandora_basic_collection_get_parent_pids($object);
+        $ds = (isset($object['JPG']) ? "JPG" : "OBJ");
+        $pid = $value['PID'];
+        $item['PID'] = $pid;
+        $item['TN'] = url("http://discoverygarden-vagrant-i7latest.local/islandora/object/$pid/datastream/TN/view");
+        $item['OBJ'] = url("islandora/object/$pid/datastream/$ds/view");
+        $item['LABEL'] = $value['dc.title'][0];
+        $item['CMODEL'] = implode(",", $object->models);
+        $item['COLLECTION_OBJECT'] = ($pos > 0 ? 0 : 1);
+        $item['MEMBER_OF'] = implode(",", $parent_pids);
+        $return[]['FD'] = $item;
+        } catch (Exception $e) {
+          return $e;// . " From PHP";
+        }
+
+      }
+      return $return;
+    }
 
   /**
    * Updates an objects WORKFLOW datastream with the supplied CWRCWorkflowAPI.
